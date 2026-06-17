@@ -1,0 +1,68 @@
+﻿{
+  "name": "agent-factory",
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "1", "name": "Webhook", "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2, "position": [240, 300],
+      "parameters": { "path": "agent-factory", "httpMethod": "POST", "responseMode": "responseNode" }
+    },
+    {
+      "id": "2", "name": "Claude Architect", "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4, "position": [460, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "http://litellm:4000/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "Bearer sk-local-supersecret123" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\":\"claude-coordinator\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an n8n workflow architect. Return ONLY valid JSON for n8n API. Rules: name in English, settings={executionOrder:v1}, each node needs id/name/type/typeVersion/position/parameters, HTTP nodes to LiteLLM use url=http://litellm:4000/v1/chat/completions with header Authorization=Bearer sk-local-supersecret123 and specifyBody=json, available models: claude-coordinator/qwen-coder/mistral-fast/llama-quick, Webhook node always first with unique path (random string), last node always respondToWebhook, all nodes connected in connections. Return ONLY JSON no markdown no explanations.\"},{\"role\":\"user\",\"content\":\"={{ $json.body.task }}\"}]}"
+      }
+    },
+    {
+      "id": "3", "name": "Parse Workflow JSON", "type": "n8n-nodes-base.code",
+      "typeVersion": 2, "position": [680, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r = $input.first().json;\nconst text = r.choices[0].message.content;\nlet workflow;\ntry {\n  const clean = text.replace(/```json\\n?|\\n?```/g, '').trim();\n  workflow = JSON.parse(clean);\n} catch(e) {\n  throw new Error('Invalid JSON: ' + text.substring(0, 300));\n}\nreturn [{ json: { workflow: JSON.stringify(workflow) } }];"
+      }
+    },
+    {
+      "id": "4", "name": "Create Workflow", "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4, "position": [900, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "http://n8n:5678/api/v1/workflows",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "X-N8N-API-KEY", "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzMDUwOTliMi1jNWYyLTQyMmQtYjE3OC02M2ExMDE1YTIwYTAiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwianRpIjoiMDVlYWQ4NDQtMmJhNC00YzM4LTkzYWYtZTY0NjBkZTFkMWU0IiwiaWF0IjoxNzc5Mzg3MTg3fQ.5o17_Bb0IzUaAA9op5wkwsQ7anNRob_2s2sQoRPgIt0" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.workflow }}"
+      }
+    },
+    {
+      "id": "5", "name": "Activate Workflow", "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4, "position": [1120, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://n8n:5678/api/v1/workflows/{{ $json.id }}/activate",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "X-N8N-API-KEY", "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzMDUwOTliMi1jNWYyLTQyMmQtYjE3OC02M2ExMDE1YTIwYTAiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwianRpIjoiMDVlYWQ4NDQtMmJhNC00YzM4LTkzYWYtZTY0NjBkZTFkMWU0IiwiaWF0IjoxNzc5Mzg3MTg3fQ.5o17_Bb0IzUaAA9op5wkwsQ7anNRob_2s2sQoRPgIt0" }] },
+        "sendBody": false
+      }
+    },
+    {
+      "id": "6", "name": "Respond to Webhook", "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1, "position": [1340, 300],
+      "parameters": { "respondWith": "json", "responseBody": "={{ { \"workflow_id\": $json.id, \"name\": $json.name, \"status\": \"created and activated\" } }}" }
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Claude Architect", "type": "main", "index": 0 }]] },
+    "Claude Architect": { "main": [[{ "node": "Parse Workflow JSON", "type": "main", "index": 0 }]] },
+    "Parse Workflow JSON": { "main": [[{ "node": "Create Workflow", "type": "main", "index": 0 }]] },
+    "Create Workflow": { "main": [[{ "node": "Activate Workflow", "type": "main", "index": 0 }]] },
+    "Activate Workflow": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  }
+}

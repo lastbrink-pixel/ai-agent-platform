@@ -1,0 +1,9 @@
+﻿use_default_settings: true
+server:
+  limiter: false
+  image_proxy: false
+  secret_key: "CHANGE_ME"
+search:
+  formats:
+    - html
+    - json

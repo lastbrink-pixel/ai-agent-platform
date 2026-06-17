@@ -1,0 +1,106 @@
+﻿{
+  "name": "dev-team",
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "1", "name": "Webhook", "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2, "position": [240, 300],
+      "parameters": { "path": "dev-team", "httpMethod": "POST", "responseMode": "responseNode" }
+    },
+    {
+      "id": "2", "name": "Claude Coordinator", "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4, "position": [460, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "http://litellm:4000/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "Bearer sk-local-supersecret123" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\":\"claude-coordinator\",\"messages\":[{\"role\":\"system\",\"content\":\"Ты координатор. Получаешь задачу и отвечаешь ТОЛЬКО JSON: {\\\"steps\\\":[{\\\"agent\\\":\\\"qwen-coder\\\",\\\"task\\\":\\\"...\\\"}]}\"},{\"role\":\"user\",\"content\":\"={{ $json.body.task }}\"}]}"
+      }
+    },
+    {
+      "id": "3", "name": "Parse Plan", "type": "n8n-nodes-base.code",
+      "typeVersion": 2, "position": [680, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r = $input.first().json;\nconst text = r.choices[0].message.content;\nlet plan;\ntry { plan = JSON.parse(text); } catch(e) { plan = {steps:[{agent:'qwen-coder',task:$('Webhook').first().json.body.task}]}; }\nreturn [{ json: { plan, task: $('Webhook').first().json.body.task } }];"
+      }
+    },
+    {
+      "id": "4", "name": "Coder", "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4, "position": [900, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "http://litellm:4000/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "Bearer sk-local-supersecret123" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\":\"qwen-coder\",\"messages\":[{\"role\":\"system\",\"content\":\"Ты программист. Пиши код в блоке ```python ... ```\"},{\"role\":\"user\",\"content\":\"={{ $json.task }}\"}]}"
+      }
+    },
+    {
+      "id": "5", "name": "Extract Code", "type": "n8n-nodes-base.code",
+      "typeVersion": 2, "position": [1120, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r = $input.first().json;\nconst text = r.choices[0].message.content;\nconst match = text.match(/```(?:python)?\\n([\\s\\S]*?)```/);\nconst code = match ? match[1] : text;\nreturn [{ json: { code, task: $('Webhook').first().json.body.task } }];"
+      }
+    },
+    {
+      "id": "6", "name": "Reviewer", "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4, "position": [1340, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "http://litellm:4000/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "Bearer sk-local-supersecret123" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\":\"mistral-fast\",\"messages\":[{\"role\":\"system\",\"content\":\"Ты ревьюер. Проверь код и ответь JSON: {\\\"approved\\\":true,\\\"issues\\\":\\\"\\\",\\\"fixed_code\\\":\\\"\\\"}\"},{\"role\":\"user\",\"content\":\"={{ $json.code }}\"}]}"
+      }
+    },
+    {
+      "id": "7", "name": "Parse Review", "type": "n8n-nodes-base.code",
+      "typeVersion": 2, "position": [1560, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r = $input.first().json;\nconst text = r.choices[0].message.content;\nlet review;\ntry { review = JSON.parse(text.replace(/```json\\n?|\\n?```/g,'')); } catch(e) { review = {approved:true,issues:'',fixed_code:$('Extract Code').first().json.code}; }\nreturn [{ json: { review, code: review.fixed_code || $('Extract Code').first().json.code, task: $('Webhook').first().json.body.task } }];"
+      }
+    },
+    {
+      "id": "8", "name": "Publisher", "type": "n8n-nodes-base.code",
+      "typeVersion": 2, "position": [1780, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const d = $input.first().json;\nconst filename = `output_${Date.now()}.py`;\nreturn [{ json: { filename, code: d.code, review_approved: d.review.approved, status: 'ready_to_publish' } }];"
+      }
+    },
+    {
+      "id": "9", "name": "Write File", "type": "n8n-nodes-base.code",
+      "typeVersion": 2, "position": [2000, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const d = $input.first().json;\nconst fs = require('fs');\nfs.writeFileSync(`/output/${d.filename}`, d.code);\nreturn [{ json: d }];"
+      }
+    },
+    {
+      "id": "10", "name": "Respond to Webhook", "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1, "position": [2220, 300],
+      "parameters": { "respondWith": "json", "responseBody": "={{ $json }}" }
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Claude Coordinator", "type": "main", "index": 0 }]] },
+    "Claude Coordinator": { "main": [[{ "node": "Parse Plan", "type": "main", "index": 0 }]] },
+    "Parse Plan": { "main": [[{ "node": "Coder", "type": "main", "index": 0 }]] },
+    "Coder": { "main": [[{ "node": "Extract Code", "type": "main", "index": 0 }]] },
+    "Extract Code": { "main": [[{ "node": "Reviewer", "type": "main", "index": 0 }]] },
+    "Reviewer": { "main": [[{ "node": "Parse Review", "type": "main", "index": 0 }]] },
+    "Parse Review": { "main": [[{ "node": "Publisher", "type": "main", "index": 0 }]] },
+    "Publisher": { "main": [[{ "node": "Write File", "type": "main", "index": 0 }]] },
+    "Write File": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  }
+}
