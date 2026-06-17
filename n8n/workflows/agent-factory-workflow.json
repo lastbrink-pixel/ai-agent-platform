@@ -35,7 +35,7 @@
         "method": "POST",
         "url": "http://n8n:5678/api/v1/workflows",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "X-N8N-API-KEY", "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzMDUwOTliMi1jNWYyLTQyMmQtYjE3OC02M2ExMDE1YTIwYTAiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwianRpIjoiMDVlYWQ4NDQtMmJhNC00YzM4LTkzYWYtZTY0NjBkZTFkMWU0IiwiaWF0IjoxNzc5Mzg3MTg3fQ.5o17_Bb0IzUaAA9op5wkwsQ7anNRob_2s2sQoRPgIt0" }] },
+        "headerParameters": { "parameters": [{ "name": "X-N8N-API-KEY", "value": "example" }] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ $json.workflow }}"
@@ -48,7 +48,7 @@
         "method": "POST",
         "url": "=http://n8n:5678/api/v1/workflows/{{ $json.id }}/activate",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "X-N8N-API-KEY", "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzMDUwOTliMi1jNWYyLTQyMmQtYjE3OC02M2ExMDE1YTIwYTAiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwianRpIjoiMDVlYWQ4NDQtMmJhNC00YzM4LTkzYWYtZTY0NjBkZTFkMWU0IiwiaWF0IjoxNzc5Mzg3MTg3fQ.5o17_Bb0IzUaAA9op5wkwsQ7anNRob_2s2sQoRPgIt0" }] },
+        "headerParameters": { "parameters": [{ "name": "X-N8N-API-KEY", "value": "example" }] },
         "sendBody": false
       }
     },
