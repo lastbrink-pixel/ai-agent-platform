@@ -1,5 +1,3 @@
-<!-- Rename this file to README.md in the root of your agent-system repo -->
-
 <p align="center">
   <img src="banner.svg" alt="Self-Hosted AI Agent Platform" width="100%">
 </p>
@@ -12,168 +10,122 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker">
-  <img src="https://img.shields.io/badge/n8n-workflow-EA4B71?logo=n8n&logoColor=white" alt="n8n">
+  <img src="https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Docker_Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose">
+  <img src="https://img.shields.io/badge/n8n-EA4B71?logo=n8n&logoColor=white" alt="n8n">
   <img src="https://img.shields.io/badge/LiteLLM-gateway-6E56CF" alt="LiteLLM">
-  <img src="https://img.shields.io/badge/Open%20WebUI-frontend-000000" alt="Open WebUI">
-  <img src="https://img.shields.io/badge/License-MIT-3DA639" alt="License">
+  <img src="https://img.shields.io/badge/Open_WebUI-interface-1D9E75" alt="Open WebUI">
+  <img src="https://img.shields.io/badge/License-MIT-3B6D11" alt="License: MIT">
 </p>
 
 ---
 
 ## Overview
 
-This project is a **production-style AI platform built from scratch and run entirely on-prem**.
-It turns a single chat interface into a team of specialised LLM agents that plan, write,
-review, and debug code, with built-in web search and controlled command execution.
+This project is a complete, locally-hosted AI agent platform built entirely with
+open-source components and orchestrated through Docker Compose. It exposes a chat
+interface where a single request is handed to a **multi-agent pipeline** that plans,
+writes, reviews, and debugs code automatically before returning a result.
 
-The whole stack is orchestrated with **Docker Compose** and is designed to run on a
-modest workstation (Intel i7-7700K, 16 GB RAM, **no GPU**) — model inference is offloaded
-to multiple cloud LLM providers through a single gateway, so the local box only handles orchestration.
+Everything runs on a single Windows workstation (Intel i7-7700K, 16 GB RAM, **no GPU**).
+Because local CPU-only inference is too slow for real work, every model alias in the
+gateway is remapped to a hosted Claude model — so the orchestration is local while the
+heavy reasoning is offloaded to a fast API. The whole stack is reachable remotely over a
+private Tailscale network.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    U[User] --> OWUI["Open WebUI · :3000"]
-    OWUI -->|custom Python tool| N8N["n8n · dev-team workflow · :5678"]
+    U["User · browser<br/>local + Tailscale"] --> OW["Open WebUI<br/>:3000 · chat + tool"]
+    OW --> N
 
-    subgraph Pipeline[dev-team agent pipeline]
-        C[Coordinator] --> CO[Coder]
-        CO --> R[Reviewer]
-        R --> D[Debugger]
-        D --> C
+    subgraph N["n8n · dev-team workflow · :5678"]
+        direction LR
+        C1[coordinator] --> C2[coder] --> C3[reviewer] --> C4[debugger]
     end
 
-    N8N --> Pipeline
-    Pipeline -->|all LLM calls| LLM["LiteLLM gateway · :4000"]
-    LLM --> ANTH[(Anthropic · Claude)]
-    LLM --> GEM[(Google · Gemini)]
-    LLM --> GRQ[(Groq · Whisper)]
-    N8N -->|web search| SX["SearXNG · :8080"]
-    N8N -->|shell commands| CMD["cmd_server.py · :9999"]
+    N --> SX["SearXNG<br/>:8080 · web search"]
+    N --> LL["LiteLLM<br/>:4000 · model gateway"]
+    N --> CS["cmd_server<br/>:9999 · command exec"]
+    LL --> CLA["Anthropic Claude API"]
 ```
 
-### Request lifecycle
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant Co as Coordinator
-    participant Cd as Coder
-    participant Rv as Reviewer
-    participant Db as Debugger
-    U->>Co: Task description
-    Co->>Cd: Plan + scoped subtask
-    Cd->>Rv: Draft implementation
-    Rv->>Db: Review notes / issues
-    Db->>Co: Fixed, verified result
-    Co->>U: Final answer
-```
+A request flows from the browser into **Open WebUI**, where a custom Python tool forwards
+it to the **n8n** `dev-team` workflow. Inside that workflow the four agents run in sequence:
+the **coordinator** breaks the task down, the **coder** implements it, the **reviewer**
+checks the result, and the **debugger** fixes what the reviewer flags. The agents call
+**SearXNG** for private web search and a lightweight **cmd_server** for executing shell
+commands, and all model calls go through **LiteLLM**, which routes every alias to the
+Anthropic Claude API.
 
 ## Components
 
-| Service | Port | Role |
-|---|---|---|
-| **Open WebUI** | 3000 | Chat front-end; a custom Python tool forwards requests to the agent pipeline |
-| **n8n** | 5678 | Orchestration engine; hosts the `dev-team` multi-agent workflow |
-| **LiteLLM** | 4000 | OpenAI-compatible gateway; one place for model routing, keys and rate limits |
-| **SearXNG** | 8080 | Self-hosted meta-search; gives agents web search without third-party search APIs |
-| **cmd_server.py** | 9999 | Minimal HTTP server for controlled shell command execution on the host |
+| Service        | Port  | Role                                                        |
+| -------------- | ----- | ---------------------------------------------------------- |
+| Open WebUI     | 3000  | Chat front-end; hosts the Python tool that triggers agents |
+| n8n            | 5678  | Workflow engine running the multi-agent pipeline           |
+| LiteLLM        | 4000  | Unified model gateway (all aliases → Claude)               |
+| SearXNG        | 8080  | Private metasearch used by agents for web research         |
+| cmd_server     | 9999  | Minimal HTTP command runner (token-protected)              |
+| PostgreSQL     | —     | Backing store for LiteLLM                                  |
 
-> **Why a gateway?** All model aliases are defined once in LiteLLM, so swapping the
-> underlying provider/model is a config change — the n8n workflows never need to be touched.
+## Key features
 
-### Model routing
+- **Multi-agent pipeline** — coordinator → coder → reviewer → debugger, defined as an
+  n8n workflow and fully inspectable as JSON.
+- **Agent factory** — a second workflow that scaffolds new agents from a template.
+- **Single model gateway** — LiteLLM gives every service one OpenAI-compatible endpoint,
+  so swapping providers means editing one config file.
+- **Runs without a GPU** — orchestration is local and lightweight; inference is delegated.
+- **Remote access by default** — Tailscale exposes the stack securely without opening ports.
+- **Reproducible** — one `docker compose up` brings the whole platform online.
 
-Workflows reference task-based **aliases**, never concrete models — LiteLLM maps each alias
-to the most suitable provider, so the whole stack is provider-agnostic by design.
+## Quick start
 
-| Alias | Provider · Model | Used for |
-|---|---|---|
-| `claude-coordinator` | Anthropic · Claude Sonnet 4.6 | planning & coordination |
-| `qwen-coder` | Google · Gemini 2.5 Pro | code generation |
-| `mistral-fast` | Google · Gemini 2.0 Flash-Lite | fast, cheap steps |
-| `llama-quick` | Google · Gemini 2.0 Flash-Lite | quick utility calls |
-| `whisper` | Groq · Whisper Large v3 | speech-to-text |
-
-## Features
-
-- 🤖 **Multi-agent pipeline** — coordinator, coder, reviewer and debugger collaborate on a single task
-- 🧩 **Tool use** — agents can search the web (SearXNG) and run controlled shell commands (`cmd_server.py`)
-- 🔌 **Provider-agnostic** — LiteLLM gateway routes task-based aliases across Anthropic, Google and Groq behind one OpenAI-compatible API
-- 💬 **Single UI** — everything is driven from one Open WebUI chat
-- 🏠 **Fully self-hosted** — no managed services; runs on a single CPU-only workstation
-- 🔐 **Private remote access** — reachable from anywhere over a Tailscale tailnet (no exposed ports)
-
-## Tech stack
-
-`Python` · `Docker / Docker Compose` · `n8n` · `LiteLLM (Anthropic · Gemini · Groq)` · `Open WebUI` · `SearXNG` · `Tailscale` · `REST APIs`
-
-## Getting started
-
-### Prerequisites
-- Docker Desktop (Compose v2)
-- API keys for the providers you use (Anthropic / Google Gemini / Groq)
-- *(optional)* Tailscale for remote access
-
-### Run it
 ```bash
-# 1. clone
+# 1. Clone
 git clone https://github.com/lastbrink-pixel/ai-agent-platform.git
 cd ai-agent-platform
 
-# 2. configure
+# 2. Configure secrets
 cp .env.example .env
-#    -> open .env and fill in your keys
+cp litellm/config.example.yaml litellm/config.yaml
+#   then edit .env and add your API key(s)
 
-# 3. start the stack
+# 3. Launch
 docker compose up -d
-
-# 4. open the UI
-#    http://localhost:3000
 ```
 
-| Service | URL |
-|---|---|
-| Open WebUI | http://localhost:3000 |
-| n8n | http://localhost:5678 |
-| LiteLLM | http://localhost:4000 |
-| SearXNG | http://localhost:8080 |
+Then open Open WebUI at `http://localhost:3000`, import the workflows from
+`n8n/workflows/` into n8n at `http://localhost:5678`, and start a chat.
 
 ## Project structure
 
 ```
 ai-agent-platform/
-├─ docker-compose.yml
-├─ cmd_server.py                    # controlled command execution (HTTP, :9999)
-├─ .env.example
-├─ litellm/
-│  └─ config.example.yaml           # task-based model aliases & routing
-├─ n8n/
-│  └─ workflows/
-│     ├─ dev-team-workflow.json      # coordinator → coder → reviewer → debugger
-│     └─ agent-factory-workflow.json # generates / wires up new agents
-├─ searxng/
-│  └─ settings.yml
-├─ banner.svg
-└─ README.md
+├── docker-compose.yml          # full stack definition
+├── .env.example                # environment template (no real secrets)
+├── cmd_server.py               # token-protected HTTP command runner
+├── litellm/
+│   └── config.example.yaml     # model routing → Claude
+├── n8n/
+│   └── workflows/
+│       ├── dev-team-workflow.json      # coordinator → coder → reviewer → debugger
+│       └── agent-factory-workflow.json # scaffolds new agents
+├── open-webui/
+│   └── tools/                  # Python tool that calls the dev-team workflow
+└── searxng/
+    └── settings.yml            # search engine config
 ```
-> The custom Open WebUI tool lives inside Open WebUI's own store; export it from
-> Workspace → Tools if you want to version it here too.
 
 ## Roadmap
 
-- [ ] Persistent task memory across agent runs
-- [ ] Optional local inference via Ollama for offline/cheap tasks
 - [ ] Per-agent metrics & token accounting
-- [ ] Hardening of the command-execution surface
+- [ ] Streaming responses back into Open WebUI
+- [ ] Pluggable model providers via LiteLLM config only
+- [ ] One-command deploy script
 
 ## License
 
-Released under the MIT License — see [LICENSE](LICENSE).
-
----
-
-<p align="center"><i>Built and operated end-to-end by Petr Savrasov.</i></p>
+Released under the MIT License.
